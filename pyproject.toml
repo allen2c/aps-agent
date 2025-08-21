@@ -4,23 +4,24 @@ dependencies = [
   "dictpress (>=0.3.0)",
   "openai (>=1,<2)",
   "openai-agents (>=0.1.0,<1.0.0)",
+  "openai-usage (>=0.3.3,<1.0.0)",
   "pydantic (>=2)",
   "str-or-none",
 ]
-description = "AllenChou's Python template."
+description = "Agent to analyze Abstractive Proposition Segmentation (APS)."
 license = { text = "MIT" }
-name = "ac-py-template"
+name = "aps-agent"
 readme = "README.md"
 requires-python = ">=3.11,<4"
 version = "0.1.0"
 
 [project.urls]
-Homepage = "https://github.com/allen2c/ac-py-template"
-"PyPI" = "https://pypi.org/project/ac-py-template/"
-Repository = "https://github.com/allen2c/ac-py-template"
+Homepage = "https://github.com/allen2c/aps-agent"
+"PyPI" = "https://pypi.org/project/aps-agent/"
+Repository = "https://github.com/allen2c/aps-agent"
 
 [tool.poetry]
-packages = [{ include = "ac_py_template" }]
+packages = [{ include = "aps_agent" }]
 
 [tool.poetry.extras]
 all = []
