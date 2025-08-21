@@ -31,6 +31,12 @@ SUPPORTED_MODEL_TYPES: typing.TypeAlias = (
 
 
 class APSAgent:
+    """Main agent for Abstractive Proposition Segmentation analysis.
+
+    Extracts atomic facts from text using AI models and follows
+    APS principles for structured information extraction.
+    """
+
     instructions_aps_j2: str = textwrap.dedent(
         """
         ## Role Instructions
@@ -137,6 +143,24 @@ class APSAgent:
         width: int = 80,
         **kwargs,
     ) -> "APSResult":
+        """Process text using AI model to extract atomic facts.
+
+        Analyzes input text and returns structured facts following
+        APS principles with usage information.
+
+        Args:
+            text: Input text to analyze
+            model: AI model to use for analysis
+            tracing_disabled: Whether to disable tracing
+            verbose: Whether to show detailed output
+            console: Rich console for output display
+            color_rotator: Color rotator for styling
+            width: Display width for panels
+            **kwargs: Additional arguments
+
+        Returns:
+            APSResult containing extracted facts and usage info
+        """
         if not (sanitized_text := str_or_none(text)):
             raise ValueError("text is None")
 
@@ -193,6 +217,17 @@ class APSAgent:
         )
 
     def _parse_aps_items(self, text: str) -> typing.List["Fact"]:
+        """Parse AI output to extract individual facts.
+
+        Extracts facts from text that match the 'fact: ' pattern
+        and returns them as Fact objects.
+
+        Args:
+            text: Raw text output from AI model
+
+        Returns:
+            List of Fact objects extracted from the text
+        """
         pattern = re.compile(r"^fact:\s*(.+)", re.MULTILINE | re.IGNORECASE)
         matches = pattern.findall(text)
 
@@ -211,6 +246,17 @@ class APSAgent:
             | None
         ) = None,
     ) -> agents.OpenAIChatCompletionsModel | agents.OpenAIResponsesModel:
+        """Convert input model to appropriate chat model instance.
+
+        Handles different model input types and converts them to
+        OpenAI chat model instances for use with the agents library.
+
+        Args:
+            model: Input model (string, ChatModel, or OpenAI model instance)
+
+        Returns:
+            Configured OpenAI chat model ready for use
+        """
         model = DEFAULT_MODEL if model is None else model
 
         if isinstance(model, str):
@@ -225,10 +271,22 @@ class APSAgent:
 
 
 class Fact(pydantic.BaseModel):
+    """Represents a single atomic fact extracted from text.
+
+    Each fact is an atomic proposition that captures one specific
+    piece of information following APS principles.
+    """
+
     fact: str
 
 
 class APSResult(pydantic.BaseModel):
+    """Result container for APS analysis.
+
+    Contains the original input text, extracted facts,
+    and usage information from the AI model analysis.
+    """
+
     input_text: str
     facts: typing.List[Fact]
     usages: typing.List[Usage] = pydantic.Field(default_factory=list)
