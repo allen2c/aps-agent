@@ -213,23 +213,10 @@ class APSAgent:
         width: int = 80,
         **kwargs,
     ) -> "APSResult":
-        """Process text using AI model to extract atomic facts.
+        """Extract atomic facts from text using AI model.
 
-        Analyzes input text and returns structured facts following
-        APS principles with usage information.
-
-        Args:
-            text: Input text to analyze
-            model: AI model to use for analysis
-            tracing_disabled: Whether to disable tracing
-            verbose: Whether to show detailed output
-            console: Rich console for output display
-            color_rotator: Color rotator for styling
-            width: Display width for panels
-            **kwargs: Additional arguments
-
-        Returns:
-            APSResult containing extracted facts and usage info
+        Returns structured facts following APS principles
+        with usage information.
         """
         if not (sanitized_text := str_or_none(text)):
             raise ValueError("text is None")
@@ -286,17 +273,86 @@ class APSAgent:
             usages=[usage],
         )
 
+    async def detect_facts_conflict(
+        self,
+        facts: typing.List["Fact"],
+        model: typing.Optional[SUPPORTED_MODEL_TYPES] = None,
+        tracing_disabled: bool = True,
+        verbose: bool = False,
+        console: rich.console.Console = console,
+        color_rotator: RichColorRotator = color_rotator,
+        width: int = 80,
+    ) -> "FactConflictResult":
+        """Detect conflicts and inconsistencies in facts.
+
+        Analyzes list of facts using AI model to identify
+        contradictions and logical conflicts.
+        """
+        sanitized_facts = [
+            Fact.model_validate_json(fact.model_dump_json()) for fact in facts
+        ]
+        if any(fact.fact == "" for fact in sanitized_facts):
+            raise ValueError("Input facts contain empty content")
+
+        chat_model = self._to_chat_model(model)
+
+        agent_instructions_template = jinja2.Template(
+            self.instructions_facts_conflict_j2
+        )
+        user_input = agent_instructions_template.render(
+            facts=sanitized_facts,
+        )
+
+        if verbose:
+            __rich_panel = rich.panel.Panel(
+                rich.text.Text(user_input),
+                title="LLM INSTRUCTIONS",
+                border_style=color_rotator.pick(),
+                width=width,
+            )
+            console.print(__rich_panel)
+
+        agent = agents.Agent(
+            name="user-preferences-agent-analyze-language",
+            model=chat_model,
+            model_settings=agents.ModelSettings(temperature=0.0),
+        )
+        result = await agents.Runner.run(
+            agent,
+            user_input,
+            run_config=agents.RunConfig(tracing_disabled=tracing_disabled),
+        )
+        usage = Usage.from_openai(result.context_wrapper.usage)
+        usage.model = chat_model.model
+        usage.cost = usage.estimate_cost(usage.model)
+
+        if verbose:
+            __rich_panel = rich.panel.Panel(
+                rich.text.Text(str(result.final_output)),
+                title="LLM OUTPUT",
+                border_style=color_rotator.pick(),
+                width=width,
+            )
+            console.print(__rich_panel)
+            __rich_panel = rich.panel.Panel(
+                rich.text.Text(usage.model_dump_json(indent=4)),
+                title="LLM USAGE",
+                border_style=color_rotator.pick(),
+                width=width,
+            )
+            console.print(__rich_panel)
+
+        return FactConflictResult(
+            input_facts=sanitized_facts,
+            conflicts=self._parse_facts_conflict_items(str(result.final_output)),
+            usages=[usage],
+        )
+
     def _parse_aps_items(self, text: str) -> typing.List["Fact"]:
         """Parse AI output to extract individual facts.
 
-        Extracts facts from text that match the 'fact: ' pattern
-        and returns them as Fact objects.
-
-        Args:
-            text: Raw text output from AI model
-
-        Returns:
-            List of Fact objects extracted from the text
+        Extracts facts matching 'fact: ' pattern and returns
+        them as Fact objects.
         """
         pattern = re.compile(r"^fact:\s*(.+)", re.MULTILINE | re.IGNORECASE)
         matches = pattern.findall(text)
@@ -305,6 +361,77 @@ class APSAgent:
             return []
 
         return [Fact(fact=match.strip()) for match in matches]
+
+    def _parse_facts_conflict_items(self, text: str) -> typing.List["FactConflict"]:
+        """Parse AI output to extract conflicts.
+
+        Extracts conflict items from AI response and returns
+        them as FactConflict objects.
+        """
+        content: str = text if isinstance(text, str) else str(text)
+
+        # Normalize non-empty lines for quick checks.
+        nonempty_lines: typing.List[str] = [
+            ln.strip() for ln in content.splitlines() if ln.strip()
+        ]
+
+        # Detect explicit "conflict: null|none" disclaimer.
+        has_null_line: bool = any(
+            re.match(r"^conflict:\s*(?:null|none)\s*$", ln, flags=re.IGNORECASE)
+            is not None
+            for ln in nonempty_lines
+        )
+        # Detect any other explicit conflict lines that carry payload.
+        has_payload_conflict_line: bool = any(
+            re.match(r"^conflict:\s*(.+)$", ln, flags=re.IGNORECASE) is not None
+            and re.match(r"^conflict:\s*(?:null|none)\s*$", ln, flags=re.IGNORECASE)
+            is None
+            for ln in nonempty_lines
+        )
+        # Detect presence of bullet conflicts.
+        has_bullets_anywhere: bool = any(
+            re.match(r"^-\s+.+$", ln) is not None for ln in nonempty_lines
+        )
+
+        # If model declares "conflict: null|none" and provides nothing else, return [].
+        if has_null_line and not has_payload_conflict_line and not has_bullets_anywhere:
+            return []
+
+        collected: typing.List[str] = []
+
+        # 1) Collect explicit single-line 'conflict: ...' payloads (any string is OK).
+        for ln in nonempty_lines:
+            m: typing.Optional[re.Match[str]] = re.match(
+                r"^conflict:\s*(.+)$", ln, flags=re.IGNORECASE
+            )
+            if m is None:
+                continue
+            payload: str = m.group(1).strip()
+            if payload and payload.lower() not in {"null", "none"}:
+                collected.append(payload)
+
+        # 2) Collect any bullets beginning with "- " anywhere.
+        for ln in nonempty_lines:
+            mb: typing.Optional[re.Match[str]] = re.match(r"^-\s+(.*\S)\s*$", ln)
+            if mb is None:
+                continue
+            bullet_text: str = mb.group(1).strip()
+            if bullet_text:
+                collected.append(bullet_text)
+
+        # Deduplicate while preserving order; drop empty/null-like artifacts.
+        seen: set[str] = set()
+        unique_items: typing.List[str] = []
+        for item in collected:
+            normalized: str = re.sub(r"\s+", " ", item).strip()
+            key: str = normalized.lower()
+            if not normalized or key in {"null", "none"}:
+                continue
+            if key not in seen:
+                seen.add(key)
+                unique_items.append(normalized)
+
+        return [FactConflict(conflict=conf) for conf in unique_items]
 
     def _to_chat_model(
         self,
@@ -316,16 +443,10 @@ class APSAgent:
             | None
         ) = None,
     ) -> agents.OpenAIChatCompletionsModel | agents.OpenAIResponsesModel:
-        """Convert input model to appropriate chat model instance.
+        """Convert input model to chat model instance.
 
-        Handles different model input types and converts them to
-        OpenAI chat model instances for use with the agents library.
-
-        Args:
-            model: Input model (string, ChatModel, or OpenAI model instance)
-
-        Returns:
-            Configured OpenAI chat model ready for use
+        Handles different model types and converts them to
+        OpenAI chat model instances.
         """
         model = DEFAULT_MODEL if model is None else model
 
@@ -349,6 +470,13 @@ class Fact(pydantic.BaseModel):
 
     fact: str
 
+    @pydantic.model_validator(mode="after")
+    def validate_fact(self) -> typing.Self:
+        self.fact = self.fact.strip()
+        if self.fact == "":
+            logger.warning("The fact content is empty")
+        return self
+
 
 class APSResult(pydantic.BaseModel):
     """Result container for APS analysis.
@@ -359,4 +487,33 @@ class APSResult(pydantic.BaseModel):
 
     input_text: str
     facts: typing.List[Fact]
+    usages: typing.List[Usage] = pydantic.Field(default_factory=list)
+
+
+class FactConflict(pydantic.BaseModel):
+    """Represents a conflict found between facts.
+
+    Contains details about contradictions or inconsistencies
+    identified in analyzed facts.
+    """
+
+    conflict: str
+
+    @pydantic.model_validator(mode="after")
+    def validate_conflict(self) -> typing.Self:
+        self.conflict = self.conflict.strip()
+        if self.conflict == "":
+            logger.warning("The conflict content is empty")
+        return self
+
+
+class FactConflictResult(pydantic.BaseModel):
+    """Result container for fact conflict analysis.
+
+    Contains input facts, identified conflicts, and
+    usage information from AI model analysis.
+    """
+
+    input_facts: typing.List[Fact]
+    conflicts: typing.List[FactConflict]
     usages: typing.List[Usage] = pydantic.Field(default_factory=list)
