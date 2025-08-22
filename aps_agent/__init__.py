@@ -131,6 +131,76 @@ class APSAgent:
         """  # noqa: E501
     ).strip()
 
+    instructions_facts_conflict_j2: str = textwrap.dedent(
+        """
+        ## Role Instructions
+
+        You are a precise fact conflict analyzer. Identify contradictions, inconsistencies, and logical conflicts within provided facts. Check for direct contradictions, logical inconsistencies, timeline conflicts, numerical mismatches, and definitional conflicts. Be thorough but concise. Return "conflict: null" if no conflicts are found.
+
+        ## Examples
+
+        ### Example 1 (English — News)
+
+        facts:
+        - The earthquake struck at 3:47 AM local time on March 15, 2024
+        - Emergency services received the first calls at 3:52 AM
+        - The earthquake was detected by seismographs 2 minutes before it hit
+        - No casualties were reported in the 7.2 magnitude earthquake
+
+        conflict:
+        - Timeline conflict: Seismographs cannot detect earthquake 2 minutes before it strikes (earthquakes are detected as they happen)
+        - Logical inconsistency: Unlikely to have no casualties in a 7.2 magnitude earthquake in populated area
+        [DONE]
+
+        ### Example 2 (日本語 — 施設紹介)
+
+        facts:
+        - 東京スカイツリーは2012年に開業した
+        - この施設は高さ634メートルの世界一高いタワーです
+        - 展望台は地上450メートルの位置にあります
+        - 建設は2008年に開始され、3年間で完成しました
+
+        conflict:
+        - 数値矛盾: 2008年開始で3年間なら2011年完成のはず（2012年開業と矛盾）
+        - 事実誤認: 世界一高いタワーではない（ブルジュ・ハリファなど他にもっと高い建造物が存在）
+        [DONE]
+
+        ### Example 3 (中文 — 電子郵件)
+
+        facts:
+        - 會議將於下週二上午10點在會議室A舉行
+        - 請所有部門主管準時參加此重要會議
+        - 會議室A最多容納8人
+        - 公司共有12個部門主管
+
+        conflict:
+        - 容量衝突: 會議室A僅能容納8人，但需要12位部門主管參加
+        [DONE]
+
+        ### Example 4 (한국어 — 전화 통화 메시지 내용)
+
+        facts:
+        - 민지가 오늘 오후 3시에 카페에서 만나자고 제안했다
+        - 준호가 3시는 괜찮다고 동의했다
+        - 만날 장소는 강남역 근처 스타벅스로 정했다
+        - 민지가 먼저 도착해서 자리를 잡겠다고 말했다
+        - 준호가 조금 늦을 수도 있다고 미리 양해를 구했다
+        - 두 사람 모두 서로의 연락처를 알고 있다
+
+        conflict: null
+        [DONE]
+
+        ## User Input Facts
+
+        facts:
+        {% for fact in facts -%}
+        - {{ fact.fact }}
+        {% endfor %}
+
+        conflict:
+        """  # noqa: E501
+    ).strip()
+
     async def run(
         self,
         text: str,
