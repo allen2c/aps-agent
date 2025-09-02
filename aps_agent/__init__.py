@@ -304,6 +304,7 @@ class APSAgent:
         text: str,
         *,
         model: typing.Optional[SUPPORTED_MODEL_TYPES] = None,
+        model_settings: typing.Optional[agents.ModelSettings] = None,
         tracing_disabled: bool = True,
         verbose: bool = False,
         console: rich.console.Console = console,
@@ -338,7 +339,7 @@ class APSAgent:
         agent = agents.Agent(
             name="user-preferences-agent-analyze-language",
             model=chat_model,
-            model_settings=agents.ModelSettings(temperature=0.0),
+            model_settings=model_settings or agents.ModelSettings(),
         )
         result = await agents.Runner.run(
             agent,
@@ -375,6 +376,7 @@ class APSAgent:
         self,
         facts: typing.List["Fact"],
         model: typing.Optional[SUPPORTED_MODEL_TYPES] = None,
+        model_settings: typing.Optional[agents.ModelSettings] = None,
         tracing_disabled: bool = True,
         verbose: bool = False,
         console: rich.console.Console = console,
@@ -413,7 +415,7 @@ class APSAgent:
         agent = agents.Agent(
             name="user-preferences-agent-analyze-language",
             model=chat_model,
-            model_settings=agents.ModelSettings(temperature=0.0),
+            model_settings=model_settings or agents.ModelSettings(),
         )
         result = await agents.Runner.run(
             agent,
